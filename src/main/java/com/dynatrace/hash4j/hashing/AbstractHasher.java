@@ -15,22 +15,12 @@
  */
 package com.dynatrace.hash4j.hashing;
 
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
-import java.nio.ByteOrder;
+import com.dynatrace.hash4j.bits.Bits;
+import com.dynatrace.hash4j.bits.Jdk8Bits;
 
 abstract class AbstractHasher implements Hasher {
-
+  private static final Bits bits = new Jdk8Bits(); // TODO branch this for JDK8 too
   protected AbstractHasher() {}
-
-  private static final VarHandle LONG_HANDLE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
-  private static final VarHandle INT_HANDLE =
-      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
-  private static final VarHandle SHORT_HANDLE =
-      MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
-  private static final VarHandle CHAR_HANDLE =
-      MethodHandles.byteArrayViewVarHandle(char[].class, ByteOrder.LITTLE_ENDIAN);
 
   /**
    * Returns as a long the most significant 64 bits of the unsigned 128-bit product of two unsigned
@@ -44,36 +34,63 @@ abstract class AbstractHasher implements Hasher {
    * @param y the second value
    * @return the result
    */
-  protected static final long unsignedMultiplyHigh(long x, long y) {
-    return Math.multiplyHigh(x, y) + ((x >> 63) & y) + ((y >> 63) & x);
+  protected static long unsignedMultiplyHigh(long x, long y) {
+    long result;
+    // TODO this is inlined from JDK code; licensing?
+    if (x < 0 || y < 0) {
+        // Use technique from section 8-2 of Henry S. Warren, Jr.,
+        // Hacker's Delight (2nd ed.) (Addison Wesley, 2013), 173-174.
+        long x1 = x >> 32;
+        long x2 = x & 0xFFFFFFFFL;
+        long y1 = y >> 32;
+        long y2 = y & 0xFFFFFFFFL;
+        long z2 = x2 * y2;
+        long t = x1 * y2 + (z2 >>> 32);
+        long z1 = t & 0xFFFFFFFFL;
+        long z0 = t >> 32;
+        z1 += x2 * y1;
+      result = x1 * y1 + z0 + (z1 >> 32);
+    } else {
+        // Use Karatsuba technique with two base 2^32 digits.
+        long x1 = x >>> 32;
+        long y1 = y >>> 32;
+        long x2 = x & 0xFFFFFFFFL;
+        long y2 = y & 0xFFFFFFFFL;
+        long A = x1 * y1;
+        long B = x2 * y2;
+        long C = (x1 + x2) * (y1 + y2);
+        long K = C - A - B;
+      result = (((B >>> 32) + K) >>> 32) + A;
+    }
+    return result + ((x >> 63) & y) + ((y >> 63) & x);
   }
 
   protected static char getChar(byte[] b, int off) {
-    return (char) CHAR_HANDLE.get(b, off);
+    return bits.getChar(b, off);
   }
 
   protected static short getShort(byte[] b, int off) {
-    return (short) SHORT_HANDLE.get(b, off);
+    return bits.getShort(b, off);
   }
 
   protected static int getInt(byte[] b, int off) {
-    return (int) INT_HANDLE.get(b, off);
+    return bits.getInt(b, off);
   }
 
   protected static long getLong(byte[] b, int off) {
-    return (long) LONG_HANDLE.get(b, off);
+    return bits.getLong(b, off);
   }
 
   protected static void setLong(byte[] b, int off, long v) {
-    LONG_HANDLE.set(b, off, v);
+    bits.setLong(b, off, v);
   }
 
   protected static void setInt(byte[] b, int off, int v) {
-    INT_HANDLE.set(b, off, v);
+    bits.setInt(b, off, v);
   }
 
   protected static void setShort(byte[] b, int off, short v) {
-    SHORT_HANDLE.set(b, off, v);
+    bits.setShort(b, off, v);
   }
 
   protected static long getLong(CharSequence s, int off) {
@@ -88,6 +105,6 @@ abstract class AbstractHasher implements Hasher {
   }
 
   protected static void setChar(byte[] b, int off, char v) {
-    CHAR_HANDLE.set(b, off, v);
+    bits.setChar(b, off, v);
   }
 }
